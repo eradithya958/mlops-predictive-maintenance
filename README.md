@@ -4,10 +4,10 @@
 > Demonstrates data versioning (DVC), experiment tracking (MLflow), containerisation (Docker),  
 > CI/CD (GitHub Actions), live monitoring (Prometheus + Grafana), and drift detection (KS test).
 
-[![CI](https://github.com/YOUR_USERNAME/MLOP_Pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/MLOP_Pipeline/actions/workflows/ci.yml)
-[![CD](https://github.com/YOUR_USERNAME/MLOP_Pipeline/actions/workflows/cd.yml/badge.svg)](https://github.com/YOUR_USERNAME/MLOP_Pipeline/actions/workflows/cd.yml)
+[![CI](https://github.com/eradithya958/mlops-predictive-maintenance/actions/workflows/ci.yml/badge.svg)](https://github.com/eradithya958/mlops-predictive-maintenance/actions/workflows/ci.yml)
+[![CD](https://github.com/eradithya958/mlops-predictive-maintenance/actions/workflows/cd.yml/badge.svg)](https://github.com/eradithya958/mlops-predictive-maintenance/actions/workflows/cd.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker)](https://www.docker.com/)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED)](https://www.docker.com/)
 
 ---
 
@@ -15,11 +15,11 @@
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| Phase 1 — Data & Model | ✅ Complete | DVC pipeline · XGBoost · MLflow tracking |
-| Phase 2 — Containerisation | ✅ Complete | FastAPI · Docker Compose · Prometheus · Grafana |
-| Phase 3 — CI/CD | ✅ Complete | GitHub Actions lint → test → build/push → promote |
-| Phase 4 — Drift Detection | ✅ Complete | KS-test detector · `/drift-report` endpoint · Grafana panels |
-| Phase 5 — Documentation | ✅ Complete | Architecture diagram · Full README · badges |
+| Phase 1 — Data & Model | Complete | DVC pipeline · XGBoost · MLflow tracking |
+| Phase 2 — Containerisation | Complete | FastAPI · Docker Compose · Prometheus · Grafana |
+| Phase 3 — CI/CD | Complete | GitHub Actions lint → test → build/push → promote |
+| Phase 4 — Drift Detection | Complete | KS-test detector · `/drift-report` endpoint · Grafana panels |
+| Phase 5 — Documentation | Complete | Architecture diagram · Full README · badges |
 
 ---
 
