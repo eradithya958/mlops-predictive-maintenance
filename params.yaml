@@ -1,0 +1,30 @@
+data:
+  dataset: FD001          # which CMAPSS subset to use (FD001–FD004)
+  rul_clip: 125           # piece-wise linear RUL cap (standard for CMAPSS)
+  test_size: 0.15         # fraction of engine units for test set
+  val_size: 0.15          # fraction of remaining units for val set
+  random_seed: 42
+
+features:
+  rolling_windows: [5, 10, 20]   # cycle windows for rolling mean/std
+  lag_steps: [1, 3, 5]           # lag offsets (cycles) for lag features
+  trend_window: 20               # window for computing linear degradation slope
+  drop_constant_sensors: true    # drop zero-variance sensors automatically
+
+model:
+  type: xgboost            # "xgboost" or "random_forest"
+  n_estimators: 300
+  max_depth: 6
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 5
+  reg_alpha: 0.1           # L1 regularisation
+  reg_lambda: 1.0          # L2 regularisation
+  early_stopping_rounds: 30
+
+mlflow:
+  experiment_name: predictive_maintenance
+  run_name: xgb_baseline_phase1
+  tracking_uri: "mlruns"   # relative → local file-based store; override with env var
+  model_registry_name: turbofan_rul

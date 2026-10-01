@@ -1,0 +1,25 @@
+{
+  "unit_id": "engine_demo_001",
+  "cycle": 50,
+  "sensors": {
+    "sensor_02": 641.82,
+    "sensor_03": 1589.70,
+    "sensor_04": 1400.60,
+    "sensor_07": 554.36,
+    "sensor_08": 2388.02,
+    "sensor_09": 9063.29,
+    "sensor_11": 47.47,
+    "sensor_12": 521.66,
+    "sensor_13": 2388.02,
+    "sensor_14": 8127.55,
+    "sensor_15": 8.4195,
+    "sensor_17": 392.0,
+    "sensor_20": 38.86,
+    "sensor_21": 23.3735
+  },
+  "settings": {
+    "setting_1": 0.0,
+    "setting_2": 0.0002,
+    "setting_3": 100.0
+  }
+}

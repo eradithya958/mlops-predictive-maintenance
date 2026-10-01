@@ -1,0 +1,54 @@
+stages:
+  ingest:
+    cmd: python -m src.data.ingest
+    deps:
+      - src/data/ingest.py
+      - src/utils/config.py
+    params:
+      - data.dataset
+      - data.rul_clip
+      - data.test_size
+      - data.val_size
+      - data.random_seed
+      - features.drop_constant_sensors
+    outs:
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/processed/test.parquet
+
+  featurize:
+    cmd: python -m src.data.features
+    deps:
+      - src/data/features.py
+      - src/utils/config.py
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/processed/test.parquet
+    params:
+      - features.rolling_windows
+      - features.lag_steps
+      - features.trend_window
+    outs:
+      - data/processed/train_features.parquet
+      - data/processed/val_features.parquet
+      - data/processed/test_features.parquet
+
+  train:
+    cmd: python -m src.train.train
+    deps:
+      - src/train/train.py
+      - src/utils/config.py
+      - data/processed/train_features.parquet
+      - data/processed/val_features.parquet
+      - data/processed/test_features.parquet
+    params:
+      - model
+      - mlflow
+      - data.random_seed
+      - data.dataset
+      - data.rul_clip
+    outs:
+      - models/latest_run_id.txt
+    metrics:
+      - models/metrics.json:
+          cache: false

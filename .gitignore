@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Data — tracked by DVC, not git
+data/raw/
+data/processed/
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Models — tracked by DVC / MLflow
+models/
+!models/.gitkeep
+
+# MLflow local tracking store
+mlruns/
+
+# DVC cache
+.dvc/cache/
+.dvc/tmp/
+
+# Environment
+.env
+.env.*
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+junit.xml
+htmlcov/
+
+# Ruff
+.ruff_cache/

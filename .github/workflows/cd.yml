@@ -1,0 +1,195 @@
+# =============================================================================
+# CD Workflow — DVC pipeline re-train + model promotion
+#
+# Triggered:
+#   • Manually via workflow_dispatch (with optional force-retrain flag)
+#   • On a weekly schedule (Sundays 02:00 UTC) for scheduled retraining
+#
+# Steps:
+#   1. Restore DVC-tracked data from cache (or re-download)
+#   2. Run `dvc repro` — runs only stages whose dependencies changed
+#   3. Evaluate new model metrics against the Production model
+#   4. If new model is better (lower RMSE), promote it to Production in MLflow
+#   5. Trigger a rolling restart of the API container (if self-hosted runner)
+#
+# Required secrets:
+#   MLFLOW_TRACKING_URI  — e.g. http://your-server:5000  (optional, defaults to local)
+# =============================================================================
+
+name: CD — Retrain & Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_retrain:
+        description: "Force full DVC repro even if no changes detected"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
+      rmse_threshold:
+        description: "Max RMSE allowed for promotion (default: 20)"
+        required: false
+        default: "20"
+
+  schedule:
+    # Every Sunday at 02:00 UTC
+    - cron: "0 2 * * 0"
+
+  # Also run after CI completes on main (model may have changed)
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+env:
+  PYTHON_VERSION: "3.11"
+  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || 'mlruns' }}
+
+jobs:
+  retrain-and-promote:
+    name: Retrain & Promote Model
+    runs-on: ubuntu-latest
+    # Only run if triggered manually, on schedule, or if CI succeeded
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install project dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Install DVC
+        run: pip install "dvc>=3.50"
+
+      - name: Restore DVC cache
+        uses: actions/cache@v4
+        with:
+          path: .dvc/cache
+          key: dvc-${{ runner.os }}-${{ hashFiles('dvc.lock') }}
+          restore-keys: dvc-${{ runner.os }}-
+
+      - name: DVC pull (restore tracked data)
+        run: |
+          # If no remote is configured, the pipeline generates synthetic data
+          dvc pull --run-cache || echo "No DVC remote configured — will generate data from scratch"
+
+      - name: Run DVC pipeline
+        run: |
+          if [ "${{ github.event.inputs.force_retrain }}" = "true" ]; then
+            echo "Force retrain requested — running dvc repro --force"
+            dvc repro --force
+          else
+            dvc repro
+          fi
+        env:
+          MLFLOW_TRACKING_URI: ${{ env.MLFLOW_TRACKING_URI }}
+
+      - name: Read metrics
+        id: metrics
+        run: |
+          if [ -f models/metrics.json ]; then
+            RMSE=$(python -c "import json; m=json.load(open('models/metrics.json')); print(m.get('test_rmse', 9999))")
+            MAE=$(python -c "import json; m=json.load(open('models/metrics.json')); print(m.get('test_mae', 9999))")
+            R2=$(python -c "import json; m=json.load(open('models/metrics.json')); print(m.get('test_r2', -1))")
+            echo "rmse=$RMSE" >> "$GITHUB_OUTPUT"
+            echo "mae=$MAE" >> "$GITHUB_OUTPUT"
+            echo "r2=$R2" >> "$GITHUB_OUTPUT"
+            echo "📊 Metrics: RMSE=$RMSE  MAE=$MAE  R²=$R2"
+          else
+            echo "⚠️  models/metrics.json not found — skipping promotion"
+            echo "rmse=9999" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Promote model to Production
+        if: steps.metrics.outputs.rmse != '9999'
+        run: |
+          python - <<'EOF'
+          import json, os, sys
+          import mlflow
+          from mlflow import MlflowClient
+
+          tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "mlruns")
+          model_name   = "turbofan_rul"
+          threshold    = float("${{ github.event.inputs.rmse_threshold || '20' }}")
+
+          mlflow.set_tracking_uri(tracking_uri)
+          client = MlflowClient()
+
+          # Read new run_id
+          run_id_file = "models/latest_run_id.txt"
+          if not os.path.exists(run_id_file):
+              print("⚠️  latest_run_id.txt not found — cannot promote")
+              sys.exit(0)
+
+          with open(run_id_file) as f:
+              run_id = f.read().strip()
+
+          # Read metrics
+          with open("models/metrics.json") as f:
+              metrics = json.load(f)
+
+          new_rmse = metrics.get("test_rmse", 9999)
+          print(f"New model run_id={run_id}  RMSE={new_rmse:.4f}  threshold={threshold}")
+
+          if new_rmse > threshold:
+              print(f"❌ RMSE {new_rmse:.4f} exceeds threshold {threshold} — NOT promoting")
+              sys.exit(0)
+
+          # Get latest Staging version for this run
+          versions = client.search_model_versions(f"run_id='{run_id}'")
+          if not versions:
+              print("⚠️  No registered version found for this run — skipping promotion")
+              sys.exit(0)
+
+          mv = max(versions, key=lambda v: int(v.version))
+          print(f"Promoting {model_name} v{mv.version} → Production")
+
+          # Archive existing Production versions
+          prod_versions = client.get_latest_versions(model_name, stages=["Production"])
+          for pv in prod_versions:
+              client.transition_model_version_stage(
+                  name=model_name, version=pv.version, stage="Archived"
+              )
+              print(f"  Archived old Production v{pv.version}")
+
+          # Promote new version
+          client.transition_model_version_stage(
+              name=model_name, version=mv.version, stage="Production"
+          )
+          print(f"✅ v{mv.version} is now Production")
+          EOF
+        env:
+          MLFLOW_TRACKING_URI: ${{ env.MLFLOW_TRACKING_URI }}
+
+      - name: Post metrics summary to job
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## 📊 Model Metrics
+          | Metric | Value |
+          |--------|-------|
+          | Test RMSE | ${{ steps.metrics.outputs.rmse }} |
+          | Test MAE  | ${{ steps.metrics.outputs.mae }}  |
+          | Test R²   | ${{ steps.metrics.outputs.r2 }}   |
+
+          **Promotion threshold:** RMSE ≤ ${{ github.event.inputs.rmse_threshold || '20' }}
+          EOF
+
+      - name: Upload metrics artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-metrics-${{ github.run_id }}
+          path: |
+            models/metrics.json
+            models/latest_run_id.txt

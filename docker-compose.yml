@@ -1,0 +1,141 @@
+version: "3.9"
+
+# =============================================================================
+# MLOps Pipeline — docker-compose.yml
+# Four services: API, MLflow tracking server, Prometheus, Grafana
+#
+# Usage:
+#   docker compose up --build -d      # start all services
+#   docker compose logs -f api        # tail API logs
+#   docker compose down               # stop all
+#
+# Ports:
+#   API      → http://localhost:8000  (docs: http://localhost:8000/docs)
+#   MLflow   → http://localhost:5000
+#   Prometheus → http://localhost:9090
+#   Grafana  → http://localhost:3000  (admin / admin on first login)
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # FastAPI prediction service
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: mlops-predictive-maintenance:latest
+    container_name: mlops_api
+    ports:
+      - "8000:8000"
+    environment:
+      # Point the API at the mlflow service (within the Docker network)
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      MLOPS_MLFLOW__TRACKING_URI: "http://mlflow:5000"
+      MLOPS_MLFLOW__MODEL_REGISTRY_NAME: "turbofan_rul"
+    volumes:
+      # Mount local mlruns/ so the API can load models trained on the host
+      - ./mlruns:/app/mlruns:ro
+      - ./models:/app/models:ro
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - mlops_net
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # MLflow tracking server
+  # ---------------------------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.0
+    container_name: mlops_mlflow
+    ports:
+      - "5000:5000"
+    command: >
+      mlflow server
+        --backend-store-uri /mlflow/mlruns
+        --default-artifact-root /mlflow/mlruns
+        --host 0.0.0.0
+        --port 5000
+    volumes:
+      - ./mlruns:/mlflow/mlruns
+    restart: unless-stopped
+    networks:
+      - mlops_net
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 20s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — scrapes /metrics from the API every 15 s
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: mlops_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - mlops_net
+
+  # ---------------------------------------------------------------------------
+  # Grafana — dashboard auto-provisioned from monitoring/grafana/
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: mlops_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/mlops_dashboard.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - mlops_net
+
+# ---------------------------------------------------------------------------
+# Named volumes (persist data across container restarts)
+# ---------------------------------------------------------------------------
+volumes:
+  prometheus_data:
+  grafana_data:
+
+# ---------------------------------------------------------------------------
+# Shared network
+# ---------------------------------------------------------------------------
+networks:
+  mlops_net:
+    driver: bridge
